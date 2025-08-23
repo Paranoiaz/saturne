@@ -1,3 +1,5 @@
-pip3 install -r requirements.txt
+pip install -r requirements.txt
 
-777based on discord
+ps7based on discord
+
+simple ddos script layer 4
